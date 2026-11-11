@@ -1,140 +1,125 @@
 const Task = require("../models/taskModel");
 
-// GET /api/tasks
-const getAllTasks = (req, res) => {
-  const tasks = Task.getAll();
+// Task ids are database integers; anything else cannot exist
+const isValidId = (id) => /^\d+$/.test(id) && Number(id) <= 2147483647;
 
-  res.status(200).json({
-    success: true,
-    count: tasks.length,
-    data: tasks,
-  });
+const notFound = (res) =>
+  res.status(404).json({ success: false, message: "Task not found" });
+
+// GET /api/tasks
+const getAllTasks = async (req, res, next) => {
+  try {
+    const tasks = await Task.getAll();
+
+    res.status(200).json({
+      success: true,
+      count: tasks.length,
+      data: tasks,
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 // GET /api/tasks/:id
-const getTaskById = (req, res) => {
-  const task = Task.getById(req.params.id);
+const getTaskById = async (req, res, next) => {
+  try {
+    if (!isValidId(req.params.id)) return notFound(res);
 
-  if (!task) {
-    return res.status(404).json({
-      success: false,
-      message: "Task not found",
-    });
+    const task = await Task.getById(req.params.id);
+    if (!task) return notFound(res);
+
+    res.status(200).json({ success: true, data: task });
+  } catch (error) {
+    next(error);
   }
-
-  res.status(200).json({
-    success: true,
-    data: task,
-  });
 };
 
 // POST /api/tasks
-const createTask = (req, res) => {
-  const { title, description } = req.body;
+const createTask = async (req, res, next) => {
+  try {
+    const { title } = req.body;
 
-  if (!title || typeof title !== "string" || !title.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: "A valid task title is required",
+    if (!title || typeof title !== "string" || !title.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid task title is required",
+      });
+    }
+
+    const newTask = await Task.create({ title: title.trim() });
+
+    res.status(201).json({
+      success: true,
+      message: "Task created successfully",
+      data: newTask,
     });
+  } catch (error) {
+    next(error);
   }
-
-  const newTask = Task.create({
-    title: title.trim(),
-    description:
-      typeof description === "string" ? description.trim() : "",
-  });
-
-  res.status(201).json({
-    success: true,
-    message: "Task created successfully",
-    data: newTask,
-  });
 };
 
 // PATCH /api/tasks/:id
-const updateTask = (req, res) => {
-  const { title, description, completed } = req.body;
+const updateTask = async (req, res, next) => {
+  try {
+    const { title, completed } = req.body;
 
-  if (Object.keys(req.body).length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: "Please provide at least one field to update",
+    if (Object.keys(req.body).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide at least one field to update",
+      });
+    }
+
+    if (title !== undefined && (typeof title !== "string" || !title.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: "Title must be a non-empty string",
+      });
+    }
+
+    if (completed !== undefined && typeof completed !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "Completed must be a boolean",
+      });
+    }
+
+    if (!isValidId(req.params.id)) return notFound(res);
+
+    const updatedTask = await Task.update(req.params.id, {
+      title: title !== undefined ? title.trim() : undefined,
+      completed,
     });
-  }
 
-  if (
-    title !== undefined &&
-    (typeof title !== "string" || !title.trim())
-  ) {
-    return res.status(400).json({
-      success: false,
-      message: "Title must be a non-empty string",
+    if (!updatedTask) return notFound(res);
+
+    res.status(200).json({
+      success: true,
+      message: "Task updated successfully",
+      data: updatedTask,
     });
+  } catch (error) {
+    next(error);
   }
-
-  if (
-    description !== undefined &&
-    typeof description !== "string"
-  ) {
-    return res.status(400).json({
-      success: false,
-      message: "Description must be a string",
-    });
-  }
-
-  if (
-    completed !== undefined &&
-    typeof completed !== "boolean"
-  ) {
-    return res.status(400).json({
-      success: false,
-      message: "Completed must be a boolean",
-    });
-  }
-
-  const updatedData = {};
-
-  if (title !== undefined) updatedData.title = title.trim();
-  if (description !== undefined) {
-    updatedData.description = description.trim();
-  }
-  if (completed !== undefined) {
-    updatedData.completed = completed;
-  }
-
-  const updatedTask = Task.update(req.params.id, updatedData);
-
-  if (!updatedTask) {
-    return res.status(404).json({
-      success: false,
-      message: "Task not found",
-    });
-  }
-
-  res.status(200).json({
-    success: true,
-    message: "Task updated successfully",
-    data: updatedTask,
-  });
 };
 
 // DELETE /api/tasks/:id
-const deleteTask = (req, res) => {
-  const deletedTask = Task.delete(req.params.id);
+const deleteTask = async (req, res, next) => {
+  try {
+    if (!isValidId(req.params.id)) return notFound(res);
 
-  if (!deletedTask) {
-    return res.status(404).json({
-      success: false,
-      message: "Task not found",
+    const deletedTask = await Task.delete(req.params.id);
+    if (!deletedTask) return notFound(res);
+
+    res.status(200).json({
+      success: true,
+      message: "Task deleted successfully",
+      data: deletedTask,
     });
+  } catch (error) {
+    next(error);
   }
-
-  res.status(200).json({
-    success: true,
-    message: "Task deleted successfully",
-    data: deletedTask,
-  });
 };
 
 module.exports = {

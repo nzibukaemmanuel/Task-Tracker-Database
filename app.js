@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 
 const config = require("./config/config");
+const pool = require("./config/db");
 
 const Task = require("./models/taskModel");
 const taskRoutes = require("./routes/taskRoutes");
@@ -24,14 +25,32 @@ app.get("/", (req, res) => {
 });
 
 // Health check: status, uptime (seconds) and number of tasks
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "ok",
-    uptime: Math.round(process.uptime()),
-    environment: config.environment,
-    taskCount: Task.getAll().length,
-    timestamp: new Date().toISOString(),
-  });
+app.get("/health", async (req, res, next) => {
+  try {
+    res.status(200).json({
+      status: "ok",
+      uptime: Math.round(process.uptime()),
+      environment: config.environment,
+      taskCount: await Task.count(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Database test endpoint: confirms the PostgreSQL connection works
+app.get("/db-test", async (req, res, next) => {
+  try {
+    const result = await pool.query("SELECT NOW() AS now");
+    res.status(200).json({
+      success: true,
+      message: "Database connection successful",
+      time: result.rows[0].now,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Task routes

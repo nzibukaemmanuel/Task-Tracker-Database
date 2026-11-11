@@ -1,59 +1,55 @@
-const { randomUUID } = require("crypto");
+const pool = require("../config/db");
 
-let tasks = [];
+const COLUMNS = 'id, title, completed, created_at AS "createdAt"';
 
 class Task {
-  static getAll() {
-    return tasks;
+  static async getAll() {
+    const { rows } = await pool.query(
+      `SELECT ${COLUMNS} FROM tasks ORDER BY id`
+    );
+    return rows;
   }
 
-  static getById(id) {
-    return tasks.find((task) => task.id === id);
+  static async getById(id) {
+    const { rows } = await pool.query(
+      `SELECT ${COLUMNS} FROM tasks WHERE id = $1`,
+      [id]
+    );
+    return rows[0] || null;
   }
 
-  static create(taskData) {
-    const newTask = {
-      id: randomUUID(),
-      title: taskData.title,
-      description: taskData.description || "",
-      completed: false,
-      createdAt: new Date().toISOString(),
-    };
-
-    tasks.push(newTask);
-
-    return newTask;
+  static async count() {
+    const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM tasks");
+    return rows[0].count;
   }
 
-  static update(id, taskData) {
-    const taskIndex = tasks.findIndex((task) => task.id === id);
-
-    if (taskIndex === -1) {
-      return null;
-    }
-
-    tasks[taskIndex] = {
-      ...tasks[taskIndex],
-      ...taskData,
-      id: tasks[taskIndex].id,
-      createdAt: tasks[taskIndex].createdAt,
-    };
-
-    return tasks[taskIndex];
+  static async create({ title }) {
+    const { rows } = await pool.query(
+      `INSERT INTO tasks (title) VALUES ($1) RETURNING ${COLUMNS}`,
+      [title]
+    );
+    return rows[0];
   }
 
-  static delete(id) {
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+  // Updates only the provided fields (title and/or completed)
+  static async update(id, { title, completed }) {
+    const { rows } = await pool.query(
+      `UPDATE tasks
+         SET title = COALESCE($2, title),
+             completed = COALESCE($3, completed)
+       WHERE id = $1
+       RETURNING ${COLUMNS}`,
+      [id, title ?? null, completed ?? null]
+    );
+    return rows[0] || null;
+  }
 
-    if (taskIndex === -1) {
-      return null;
-    }
-
-    const deletedTask = tasks[taskIndex];
-
-    tasks.splice(taskIndex, 1);
-
-    return deletedTask;
+  static async delete(id) {
+    const { rows } = await pool.query(
+      `DELETE FROM tasks WHERE id = $1 RETURNING ${COLUMNS}`,
+      [id]
+    );
+    return rows[0] || null;
   }
 }
 
