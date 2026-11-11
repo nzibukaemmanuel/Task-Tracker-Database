@@ -1,6 +1,6 @@
 const pool = require("../config/db");
 
-const COLUMNS = 'id, title, completed, created_at AS "createdAt"';
+const COLUMNS = 'id, title, description, completed, created_at AS "createdAt"';
 
 class Task {
   static async getAll() {
@@ -23,23 +23,24 @@ class Task {
     return rows[0].count;
   }
 
-  static async create({ title }) {
+  static async create({ title, description = "" }) {
     const { rows } = await pool.query(
-      `INSERT INTO tasks (title) VALUES ($1) RETURNING ${COLUMNS}`,
-      [title]
+      `INSERT INTO tasks (title, description) VALUES ($1, $2) RETURNING ${COLUMNS}`,
+      [title, description]
     );
     return rows[0];
   }
 
-  // Updates only the provided fields (title and/or completed)
-  static async update(id, { title, completed }) {
+  // Updates only the provided fields (title, description and/or completed)
+  static async update(id, { title, description, completed }) {
     const { rows } = await pool.query(
       `UPDATE tasks
          SET title = COALESCE($2, title),
-             completed = COALESCE($3, completed)
+             description = COALESCE($3, description),
+             completed = COALESCE($4, completed)
        WHERE id = $1
        RETURNING ${COLUMNS}`,
-      [id, title ?? null, completed ?? null]
+      [id, title ?? null, description ?? null, completed ?? null]
     );
     return rows[0] || null;
   }

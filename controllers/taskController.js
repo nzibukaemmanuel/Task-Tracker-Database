@@ -38,7 +38,7 @@ const getTaskById = async (req, res, next) => {
 // POST /api/tasks
 const createTask = async (req, res, next) => {
   try {
-    const { title } = req.body;
+    const { title, description } = req.body;
 
     if (!title || typeof title !== "string" || !title.trim()) {
       return res.status(400).json({
@@ -47,7 +47,10 @@ const createTask = async (req, res, next) => {
       });
     }
 
-    const newTask = await Task.create({ title: title.trim() });
+    const newTask = await Task.create({
+      title: title.trim(),
+      description: typeof description === "string" ? description.trim() : "",
+    });
 
     res.status(201).json({
       success: true,
@@ -62,7 +65,7 @@ const createTask = async (req, res, next) => {
 // PATCH /api/tasks/:id
 const updateTask = async (req, res, next) => {
   try {
-    const { title, completed } = req.body;
+    const { title, description, completed } = req.body;
 
     if (Object.keys(req.body).length === 0) {
       return res.status(400).json({
@@ -78,6 +81,13 @@ const updateTask = async (req, res, next) => {
       });
     }
 
+    if (description !== undefined && typeof description !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Description must be a string",
+      });
+    }
+
     if (completed !== undefined && typeof completed !== "boolean") {
       return res.status(400).json({
         success: false,
@@ -89,6 +99,7 @@ const updateTask = async (req, res, next) => {
 
     const updatedTask = await Task.update(req.params.id, {
       title: title !== undefined ? title.trim() : undefined,
+      description: description !== undefined ? description.trim() : undefined,
       completed,
     });
 
