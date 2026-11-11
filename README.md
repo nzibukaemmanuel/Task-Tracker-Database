@@ -1,103 +1,105 @@
-# RESTful Task Tracker
+# Task Tracker – Database
 
-A RESTful API for managing tasks, built with **Express.js** on Node.js. It supports full CRUD operations, uses custom middleware for 404 and error handling, reads configuration from environment variables with **dotenv**, and follows an **MVC( Model–View–Controller)**-style structure. Tasks are stored in an in-memory array, so there is no database yet.
+A RESTful Task Tracker API built with **Express.js** and **PostgreSQL**. It extends the in-memory Task Tracker API with persistent storage: tasks are saved in a `tasks` table, database settings come from environment variables, and every database call uses async/await with centralised error handling.
 
 ## Topics covered
 
-- REST API design
-- CRUD operations
-- Middleware
-- Error handling
-- dotenv (environment configuration)
-- MVC project structure
+- Connecting Express to PostgreSQL with `pg` (connection pool)
+- Schema design and CRUD with parameterized SQL
+- Environment variables for database configuration (dotenv)
+- async/await and error handling for database operations
+- Integration testing against a separate test database
 
 ## Getting started
 
 ### Prerequisites
 
 - Node.js 18 or later
-- npm
+- PostgreSQL running locally (default port 5432)
 
-### Install and run
+### 1. Install
 
 ```bash
 npm install
-npm run dev     # development, restarts on file changes (nodemon)
-# or
-npm start       # production, plain node
 ```
 
-The server listens on port `5000` by default and logs:
+### 2. Create the database
 
-```
-Server running in development mode on port 5000
-```
+Create an empty database named `task_tracker_db` (pgAdmin, or `CREATE DATABASE task_tracker_db;` in `psql`).
 
-### Configuration
+### 3. Configure
 
-Create a `.env` file in the project root (it is git-ignored). Both values are optional.
+Copy `.env.example` to `.env` (it is git-ignored) and fill in your values:
 
 ```env
 PORT=5000
 NODE_ENV=development
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=task_tracker_db
+DB_USER=postgres
+DB_PASSWORD=your_password_here
 ```
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `5000` | Port the server listens on |
-| `NODE_ENV` | `development` | When set to `development`, error responses include the stack trace |
+| `NODE_ENV` | `development` | In `development`, error responses include the stack trace |
+| `DB_HOST` / `DB_PORT` | – | PostgreSQL server address |
+| `DB_NAME` | – | Database name (`task_tracker_db`) |
+| `DB_USER` / `DB_PASSWORD` | – | Database credentials |
+
+### 4. Create the table and run
+
+```bash
+npm run db:init   # creates the tasks table (safe to re-run)
+npm run dev       # development, restarts on file changes
+# or
+npm start         # production, plain node
+```
+
+Check the database connection at `GET /db-test`.
 
 ## Project structure
 
 ```
-RESTful-Task-Tracker/
-├── app.js                         # Builds the Express app: middleware, routes, /health (no listen)
-├── server.js                      # Entry point: starts the app listening on PORT
-├── tests/
-│   └── api.test.js                # Automated tests (Jest + Supertest)
+Task-Tracker-Database/
+├── app.js                    # Express app: middleware, routes, /health, /db-test
+├── server.js                 # Entry point: starts listening on PORT
 ├── config/
-│   └── config.js                  # Reads PORT and NODE_ENV from the environment
-├── models/
-│   └── taskModel.js               # Task data and operations (in-memory array)
-├── controllers/
-│   └── taskController.js          # Request handling, validation, responses
-├── routes/
-│   └── taskRoutes.js              # Maps HTTP methods and paths to controllers
-├── middleware/
-│   ├── notFoundMiddleware.js      # 404 for unknown routes
-│   └── errorMiddleware.js         # Central error handler
-├── render.yaml                    # Render deployment blueprint
-├── package.json
-└── .gitignore
+│   ├── config.js             # PORT and NODE_ENV
+│   └── db.js                 # PostgreSQL connection pool (reads DB_* variables)
+├── db/
+│   ├── schema.sql            # tasks table definition
+│   └── init.js               # applies schema.sql (npm run db:init)
+├── models/taskModel.js       # SQL queries for tasks
+├── controllers/taskController.js  # Validation, responses, error forwarding
+├── routes/taskRoutes.js      # Maps methods and paths to controllers
+├── middleware/               # 404 and central error handler
+├── tests/                    # Jest + Supertest suite and test-database setup
+├── jest.config.js
+├── render.yaml               # Render blueprint (web service + PostgreSQL)
+└── .env.example
 ```
 
-### How MVC maps onto this project
+## Database schema
 
-| Layer | File | Responsibility |
-|---|---|---|
-| Model | `models/taskModel.js` | Owns the data. Creates, reads, updates and deletes tasks in an array. Knows nothing about HTTP. |
-| Controller | `controllers/taskController.js` | Validates input, calls the model, and chooses the status code and JSON response. |
-| Routes | `routes/taskRoutes.js` | Connects each HTTP method and path to a controller function. |
-| View | (none) | This is a JSON API, so the JSON response is the "view". |
-
-### Request flow
-
-```
-Request
-  → express.json()            parses the JSON body
-  → /api/tasks router         matches method and path
-  → controller                validates input and calls the model
-  → model                     reads or writes the in-memory array
-  → controller                sends the JSON response
-Unmatched route  → notFoundMiddleware → 404
-Thrown error     → errorMiddleware    → error JSON
+```sql
+CREATE TABLE IF NOT EXISTS tasks (
+  id          SERIAL PRIMARY KEY,
+  title       VARCHAR(255) NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  completed   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 ```
 
-## The task object
+The task object returned by the API:
 
 ```json
 {
-  "id": "3f0c8a52-6a1e-4d0b-9b5b-2b0a1c9f7e11",
+  "id": 1,
   "title": "Write the README",
   "description": "Explain how the lab works",
   "completed": false,
@@ -107,11 +109,11 @@ Thrown error     → errorMiddleware    → error JSON
 
 | Field | Type | Notes |
 |---|---|---|
-| `id` | string | UUID generated by the server. Cannot be changed. |
-| `title` | string | Required, must be non-empty. |
+| `id` | integer | Generated by the database. Cannot be changed. |
+| `title` | string | Required, non-empty, max 255 characters. |
 | `description` | string | Optional, defaults to `""`. |
-| `completed` | boolean | Starts as `false`. |
-| `createdAt` | string | ISO timestamp set by the server. Cannot be changed. |
+| `completed` | boolean | Starts as `false`; change it with PATCH. |
+| `createdAt` | string | Timestamp set by the database (`created_at`). Cannot be changed. |
 
 ## API reference
 
@@ -120,112 +122,55 @@ Base URL: `http://localhost:5000`
 | Method | Endpoint | Description | Success |
 |---|---|---|---|
 | GET | `/` | Welcome message | 200 |
-| GET | `/health` | Health check: status, uptime, task count | 200 |
+| GET | `/health` | Status, uptime, task count (from the database) | 200 |
+| GET | `/db-test` | Confirms the database connection | 200 |
 | GET | `/api/tasks` | List all tasks | 200 |
 | GET | `/api/tasks/:id` | Get one task | 200 |
 | POST | `/api/tasks` | Create a task | 201 |
-| PATCH | `/api/tasks/:id` | Update one or more fields of a task | 200 |
+| PATCH | `/api/tasks/:id` | Update `title`, `description` and/or `completed` | 200 |
 | DELETE | `/api/tasks/:id` | Delete a task | 200 |
 
-### Health check
+### Examples
 
 ```bash
-curl http://localhost:5000/health
-```
-
-```json
-{
-  "status": "ok",
-  "uptime": 42,
-  "environment": "development",
-  "taskCount": 3,
-  "timestamp": "2026-11-10T09:30:00.000Z"
-}
-```
-
-`uptime` is in seconds since the server started. `taskCount` is the number of tasks currently in memory, so it resets to 0 on restart. If the server is down, the request fails to connect, which is how a monitor would detect a problem.
-
-### Create a task
-
-```bash
+# Create
 curl -X POST http://localhost:5000/api/tasks \
   -H "Content-Type: application/json" \
-  -d '{"title": "Write the README", "description": "Explain how the lab works"}'
-```
+  -d '{"title": "Learn PostgreSQL", "description": "CRUD lab"}'
 
-Response `201`:
-
-```json
-{
-  "success": true,
-  "message": "Task created successfully",
-  "data": {
-    "id": "3f0c8a52-6a1e-4d0b-9b5b-2b0a1c9f7e11",
-    "title": "Write the README",
-    "description": "Explain how the lab works",
-    "completed": false,
-    "createdAt": "2026-11-10T09:30:00.000Z"
-  }
-}
-```
-
-### List tasks
-
-```bash
+# List / get one
 curl http://localhost:5000/api/tasks
+curl http://localhost:5000/api/tasks/1
+
+# Update (send only the fields to change)
+curl -X PATCH http://localhost:5000/api/tasks/1 \
+  -H "Content-Type: application/json" -d '{"completed": true}'
+
+# Delete
+curl -X DELETE http://localhost:5000/api/tasks/1
 ```
 
-```json
-{
-  "success": true,
-  "count": 1,
-  "data": [ { "id": "...", "title": "Write the README", "...": "..." } ]
-}
-```
-
-### Update a task
-
-Send only the fields you want to change: `title`, `description` and/or `completed`.
-
-```bash
-curl -X PATCH http://localhost:5000/api/tasks/<id> \
-  -H "Content-Type: application/json" \
-  -d '{"completed": true}'
-```
-
-### Delete a task
-
-```bash
-curl -X DELETE http://localhost:5000/api/tasks/<id>
-```
-
-Returns the deleted task in `data`.
+Success responses look like `{ "success": true, "data": ... }`; lists also include `count`.
 
 ## Error handling
 
 All errors return JSON with `success: false` and a `message`.
 
-| Status | When | Example message |
-|---|---|---|
-| 400 | Missing or invalid input | `A valid task title is required` |
-| 400 | Empty PATCH body | `Please provide at least one field to update` |
-| 400 | Wrong field type on update | `Completed must be a boolean` |
-| 400 | Malformed JSON body | Parser error message |
-| 404 | Task ID does not exist | `Task not found` |
-| 404 | Route does not exist | `Route not found: GET /nope` |
-| 500 | Unexpected server error | `Internal Server Error` |
+| Status | When |
+|---|---|
+| 400 | Missing/invalid title, empty PATCH body, wrong field type, malformed JSON |
+| 404 | Task not found (including a non-numeric id), or unknown route |
+| 500 | Unexpected error, such as the database being unreachable |
 
-Errors are handled in two places:
+Every controller wraps its database calls in `try/catch` and forwards failures with `next(error)`. `errorMiddleware` logs the error and replies with its `statusCode` (or 500); the stack trace is included only when `NODE_ENV=development`.
 
-- **Controllers** validate input and return 400 or 404 directly for expected problems.
-- **`errorMiddleware`** is the catch-all registered last. It logs the error, uses the error's `statusCode` (or 500), and includes the stack trace only when `NODE_ENV=development`.
+## Design notes
 
-## Design notes and limitations
-
-- **In-memory storage:** tasks live in a JavaScript array, so **all data is lost when the server restarts**. The model's methods (`getAll`, `getById`, `create`, `update`, `delete`) are the only place that touches the data, so a database can replace the array later without changing the controllers or routes.
-- **PATCH, not PUT:** updates are partial. Only the fields you send change, and `id` and `createdAt` are always preserved.
-- **No authentication or pagination:** out of scope for this lab.
-- **App and server are separate:** `app.js` builds the Express app and `server.js` only starts listening. This lets the tests load the app directly without opening a port.
+- **Parameterized queries:** every query uses `$1, $2, ...` placeholders, so user input is never concatenated into SQL (no SQL injection).
+- **Connection pool:** `config/db.js` exports one `pg` Pool shared by the whole app.
+- **PATCH, not PUT:** updates are partial (`COALESCE` keeps columns you did not send), and `id` and `created_at` are never writable.
+- **App and server are separate:** `app.js` builds the app and `server.js` only listens, so tests can load the app without opening a port.
+- **Out of scope:** authentication, pagination, migrations tooling.
 
 ## Testing
 
@@ -233,68 +178,37 @@ Errors are handled in two places:
 npm test
 ```
 
-The suite in `tests/api.test.js` uses **Jest** and **Supertest** to send real HTTP requests to the app in memory. It covers:
+The Jest + Supertest suite sends real HTTP requests to the app and hits a real PostgreSQL database. To keep your data safe, tests automatically use a **separate database named `<DB_NAME>_test`** (for example `task_tracker_db_test`). `tests/globalSetup.js` creates it and the table if needed, so the `DB_USER` must be allowed to create databases. The table is truncated before every test.
 
-- The welcome route and `/health`, including that `taskCount` follows created and deleted tasks
-- Creating tasks, including trimming and rejecting a missing, empty or non-string title and malformed JSON
-- Listing, and getting one task by id, including 404 for an unknown id
-- Partial updates, that `id` and `createdAt` cannot be changed, and 400 for invalid fields
-- Deleting, including 404 when deleting twice
-- 404 for unknown routes
-
-The task store is emptied before each test, so tests do not depend on each other. The 500 path is not covered.
+It covers the welcome route, `/health` and `/db-test`, create/read/update/delete, validation errors, invalid ids, rows persisting in the database, unknown routes, and 500 responses when the database fails.
 
 ## Deploying to Render
 
-The app runs as a normal long-running Node server, so it deploys to [Render](https://render.com) as a **Web Service**. The repo includes a `render.yaml` blueprint with the settings below.
-
-### Option A: Blueprint (recommended)
+`render.yaml` defines a **web service** plus a managed **PostgreSQL** database and wires the `DB_*` variables from the database to the service.
 
 1. Push the repo to GitHub.
-2. In Render, choose **New → Blueprint** and select this repository.
-3. Render reads `render.yaml` and creates the service. Approve it and wait for the deploy to finish.
+2. In Render choose **New → Blueprint** and select the repository.
+3. Approve the blueprint. The start command runs `npm run db:init` (creates the table) and then `npm start`.
+4. Check `https://<your-service>.onrender.com/health` and `/db-test`.
 
-### Option B: Manual Web Service
+Notes:
 
-1. In Render, choose **New → Web Service** and connect this repository.
-2. Use these settings:
-
-| Setting | Value |
-|---|---|
-| Runtime | Node |
-| Build command | `npm install` |
-| Start command | `npm start` |
-| Health check path | `/health` |
-| Environment variable | `NODE_ENV=production` |
-
-You do not need to set `PORT`. Render provides it and `config/config.js` reads it.
-
-### After deploying
-
-Render gives you a URL like `https://restful-task-tracker.onrender.com`. Check it with:
-
-```bash
-curl https://<your-service>.onrender.com/health
-```
-
-### Limitations on Render
-
-- **Tasks are lost on restart or redeploy.** Storage is an in-memory array, so this is expected until a database is added.
-- **The free plan sleeps when idle.** After a period without traffic the service spins down. The next request is slow while it wakes up, and the tasks are gone. Check Render's current free-plan terms for the exact behaviour.
-- With `NODE_ENV=production`, error responses do not include stack traces.
+- Data now survives restarts and redeploys because it lives in PostgreSQL.
+- The free web service sleeps when idle, so the first request after a pause is slow. Check Render's current free-plan terms for how long the free database is kept.
+- The web service reaches the database over Render's internal network, so no SSL setup is needed. To connect from your own machine to a Render database you would need its external URL and SSL, which `config/db.js` does not enable.
 
 ## Scripts
 
-| Command | Runs | Use |
-|---|---|---|
-| `npm start` | `node server.js` | Run the server |
-| `npm run dev` | `nodemon server.js` | Run with auto-restart during development |
-| `npm test` | `jest` | Run the automated tests |
+| Command | Use |
+|---|---|
+| `npm start` | Run the server |
+| `npm run dev` | Run with auto-restart (nodemon) |
+| `npm run db:init` | Create the `tasks` table |
+| `npm test` | Run the automated tests |
 
 ## Dependencies
 
 - **express**: web framework
+- **pg**: PostgreSQL client
 - **dotenv**: loads `.env` into `process.env`
-- **nodemon** (dev): restarts the server on file changes
-- **jest** (dev): test runner
-- **supertest** (dev): sends HTTP requests to the app in tests
+- **nodemon** (dev), **jest** (dev), **supertest** (dev)
