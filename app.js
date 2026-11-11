@@ -13,6 +13,9 @@ const errorMiddleware = require("./middleware/errorMiddleware");
 
 const app = express();
 
+// Do not advertise the framework in the X-Powered-By header
+app.disable("x-powered-by");
+
 // Built-in middleware
 app.use(express.json());
 
