@@ -1,20 +1,21 @@
 const request = require("supertest");
 
 const app = require("../app");
-const Task = require("../models/taskModel");
+const pool = require("../config/db");
 
 // The error middleware logs every error; keep the test output readable.
 beforeAll(() => {
   jest.spyOn(console, "error").mockImplementation(() => {});
 });
 
-afterAll(() => {
+afterAll(async () => {
   console.error.mockRestore();
+  await pool.end();
 });
 
-// Tasks live in memory, so empty the store before every test.
-beforeEach(() => {
-  [...Task.getAll()].forEach((task) => Task.delete(task.id));
+// Tests run against the separate *_test database; start each test empty.
+beforeEach(async () => {
+  await pool.query("TRUNCATE TABLE tasks RESTART IDENTITY");
 });
 
 const createTask = (body = { title: "Write tests" }) =>
@@ -49,6 +50,25 @@ describe("Welcome and health", () => {
   });
 });
 
+describe("GET /db-test", () => {
+  test("confirms the database connection", async () => {
+    const res = await request(app).get("/db-test");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.time).toBeDefined();
+  });
+
+  test("returns 500 when the database fails", async () => {
+    jest.spyOn(pool, "query").mockRejectedValueOnce(new Error("db down"));
+
+    const res = await request(app).get("/db-test");
+
+    expect(res.status).toBe(500);
+    expect(res.body.success).toBe(false);
+  });
+});
+
 describe("POST /api/tasks", () => {
   test("creates a task with defaults", async () => {
     const res = await createTask({ title: "  Buy milk  " });
@@ -72,6 +92,17 @@ describe("POST /api/tasks", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
+  });
+
+  test("persists the task in the database", async () => {
+    const { body } = await createTask({ title: "Stored", description: "d" });
+
+    const { rows } = await pool.query("SELECT * FROM tasks WHERE id = $1", [
+      body.data.id,
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ title: "Stored", description: "d" });
   });
 
   test("rejects malformed JSON with 400", async () => {
@@ -113,10 +144,27 @@ describe("GET /api/tasks", () => {
   });
 
   test("returns 404 for an unknown id", async () => {
-    const res = await request(app).get("/api/tasks/does-not-exist");
+    const res = await request(app).get("/api/tasks/9999");
 
     expect(res.status).toBe(404);
     expect(res.body.message).toBe("Task not found");
+  });
+
+  test.each(["does-not-exist", "-1", "1.5", "99999999999999"])(
+    "returns 404 for invalid id %s",
+    async (id) => {
+      const res = await request(app).get(`/api/tasks/${id}`);
+
+      expect(res.status).toBe(404);
+    }
+  );
+
+  test("returns 500 when the database fails", async () => {
+    jest.spyOn(pool, "query").mockRejectedValueOnce(new Error("db down"));
+
+    const res = await request(app).get("/api/tasks");
+
+    expect(res.status).toBe(500);
   });
 });
 
